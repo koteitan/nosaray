@@ -13,10 +13,13 @@ export const App = () => {
   const myPubkey = useAtomValue(myPubkeyAtom);
   const queryInputs = useAtomValue(waybackQueryInputsAtom);
 
-  const postOrder: PostOrder = useMemo(
-    () => (queryInputs?.type === "since-and-until" ? "created-at-asc" : "created-at-desc"),
-    [queryInputs],
-  );
+  const postOrder: PostOrder = useMemo(() => {
+    if (queryInputs?.type === "since-and-until") {
+      // show oldest first when since < until (natural order), newest first when reversed
+      return queryInputs.sinceDatetime <= queryInputs.untilDatetime ? "created-at-asc" : "created-at-desc";
+    }
+    return "created-at-desc";
+  }, [queryInputs]);
 
   return (
     <>

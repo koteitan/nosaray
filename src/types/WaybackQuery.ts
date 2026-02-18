@@ -212,8 +212,12 @@ export const WaybackQuery = {
           console.error("fromInputs: invalid datetime:", err);
           return undefined;
         }
-        if (since >= until) {
+        if (since === until) {
           return undefined;
+        }
+        // swap if since > until (user entered times in reverse order)
+        if (since > until) {
+          [since, until] = [until, since];
         }
         until = Math.min(until, getUnixTime(new Date()));
         return { since, until };
