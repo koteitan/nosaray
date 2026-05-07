@@ -1,5 +1,5 @@
 import { ExternalLinkIcon } from "@chakra-ui/icons";
-import { Avatar, Box, Card, Grid, GridItem, HStack, Text, Tooltip } from "@chakra-ui/react";
+import { Avatar, Box, Card, Grid, GridItem, HStack, Image, Link, Text, Tooltip } from "@chakra-ui/react";
 import { format, fromUnixTime } from "date-fns";
 import { atom, useAtom, useAtomValue } from "jotai";
 import { neventEncode, noteEncode, npubEncode } from "nostr-tools/nip19";
@@ -12,6 +12,31 @@ import { CopyToClipboardButton } from "./CopyToClipboardButton";
 const toTruncatedNpub = (hexPubkey: string) => {
   const npub = npubEncode(hexPubkey);
   return `${npub.slice(0, 8)}:${npub.slice(-8)}`;
+};
+
+const URL_REGEX = /(https?:\/\/\S+)/g;
+const IMAGE_EXT_REGEX = /\.(jpe?g|png|gif|webp|bmp|svg|avif)(\?\S*)?$/i;
+
+const renderPostContent = (content: string) => {
+  const parts = content.split(URL_REGEX);
+  return parts.map((part, idx) => {
+    const key = `${idx}-${part.slice(0, 16)}`;
+    if (/^https?:\/\//.test(part)) {
+      if (IMAGE_EXT_REGEX.test(part)) {
+        return (
+          <Link key={key} href={part} isExternal display="block" my={1} onClick={(e) => e.stopPropagation()}>
+            <Image src={part} alt="" maxW="100%" maxH="400px" borderRadius="md" />
+          </Link>
+        );
+      }
+      return (
+        <Link key={key} href={part} color="blue.500" isExternal onClick={(e) => e.stopPropagation()}>
+          {part}
+        </Link>
+      );
+    }
+    return <span key={key}>{part}</span>;
+  });
 };
 
 const undefAtom = atom(undefined);
@@ -56,7 +81,9 @@ export const Post: React.FC<PostProps> = ({ id }) => {
           <PostAuthorName profile={profile} pubkey={post.pubkey} />
         </GridItem>
         <GridItem area="text">
-          <Text whiteSpace="pre-wrap">{post.content}</Text>
+          <Box whiteSpace="pre-wrap" wordBreak="break-word">
+            {renderPostContent(post.content)}
+          </Box>
         </GridItem>
         <GridItem area="date" justifySelf="end">
           <Text color="gray.600">{format(fromUnixTime(post.created_at), "M/d HH:mm:ss")}</Text>
