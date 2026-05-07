@@ -18,12 +18,12 @@ import {
   VStack,
 } from "@chakra-ui/react";
 import { SingleDatepicker } from "chakra-dayzed-datepicker";
-import { addMinutes, differenceInMilliseconds, format, getUnixTime, startOfMinute, subHours } from "date-fns";
+import { addMinutes, differenceInMilliseconds, format, getUnixTime, parseISO, startOfMinute, subHours } from "date-fns";
 import { useSetAtom } from "jotai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { waybackQueryInputsAtom } from "../states/WaybackQuery";
 import type { TimeUnit } from "../types/TimeUnit";
-import { WaybackQuery, type WaybackQueryInputs } from "../types/WaybackQuery";
+import { WaybackQuery, WaybackQueryInputs } from "../types/WaybackQuery";
 
 const getNow = () => new Date();
 
@@ -49,11 +49,15 @@ export const WaybackQueryForm: React.FC = () => {
   const untilNowForm = useUntilNowForm();
 
   const tabs = [
-    { key: "since-dur", label: "始点+期間", form: sinceAndDurForm },
-    { key: "since-until", label: "始点+終点", form: sinceAndUntilForm },
-    { key: "until-now", label: "現在まで", form: untilNowForm },
+    { key: "since-dur", label: "始点+期間", form: sinceAndDurForm, queryType: "since-and-dur" as const },
+    { key: "since-until", label: "始点+終点", form: sinceAndUntilForm, queryType: "since-and-until" as const },
+    { key: "until-now", label: "現在まで", form: untilNowForm, queryType: "until-now" as const },
   ];
-  const [tabIdx, setTabIdx] = useState(0);
+  const [tabIdx, setTabIdx] = useState(() => {
+    const initialInputs = WaybackQueryInputs.fromURLQuery(location.search);
+    const idx = tabs.findIndex((t) => t.queryType === initialInputs?.type);
+    return idx >= 0 ? idx : 0;
+  });
   const queryInputs = tabs[tabIdx]?.form.queryInputs;
 
   const handleClickWayback = () => {
@@ -65,7 +69,7 @@ export const WaybackQueryForm: React.FC = () => {
 
   return (
     <VStack w="100%">
-      <Tabs w="100%" colorScheme="purple" onChange={(idx) => setTabIdx(idx)}>
+      <Tabs w="100%" colorScheme="purple" defaultIndex={tabIdx} onChange={(idx) => setTabIdx(idx)}>
         <TabList>
           {tabs.map((t) => (
             <Tab key={t.key}>{t.label}</Tab>
@@ -160,10 +164,24 @@ const useSinceAndDurForm = () => {
 
 const useSinceAndUntilForm = () => {
   const now = getNow();
-  const [sinceDate, setSinceDate] = useState<Date>(subHours(now, 1));
-  const [sinceTime, setSinceTime] = useState<string>(format(subHours(now, 1), "HH:mm"));
-  const [untilDate, setUntilDate] = useState<Date>(now);
-  const [untilTime, setUntilTime] = useState<string>(format(now, "HH:mm"));
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only initialize once on mount
+  const initial = useMemo(() => {
+    const inputs = WaybackQueryInputs.fromURLQuery(location.search);
+    if (inputs?.type !== "since-and-until") {
+      return { sinceDate: subHours(now, 1), untilDate: now };
+    }
+    const s = parseISO(inputs.sinceDatetime);
+    const u = parseISO(inputs.untilDatetime);
+    if (Number.isNaN(s.getTime()) || Number.isNaN(u.getTime())) {
+      return { sinceDate: subHours(now, 1), untilDate: now };
+    }
+    return { sinceDate: s, untilDate: u };
+  }, []);
+
+  const [sinceDate, setSinceDate] = useState<Date>(initial.sinceDate);
+  const [sinceTime, setSinceTime] = useState<string>(format(initial.sinceDate, "HH:mm"));
+  const [untilDate, setUntilDate] = useState<Date>(initial.untilDate);
+  const [untilTime, setUntilTime] = useState<string>(format(initial.untilDate, "HH:mm"));
 
   const queryInputs: WaybackQueryInputs | undefined = useMemo(() => {
     const sinceDatetime = `${format(sinceDate, "yyyy-MM-dd")}T${sinceTime}`;
