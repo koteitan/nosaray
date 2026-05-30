@@ -1,6 +1,7 @@
 import { atom, getDefaultStore, useAtomValue } from "jotai";
 import { loadable } from "jotai/utils";
 import { EventFetcher } from "../nostr/EventFetcher";
+import { parseEventInput } from "../nostr/eventId";
 import { getReadRelays } from "../nostr/utils";
 import type { UserData } from "../types/UserData";
 import { WaybackQuery, WaybackQueryInputs } from "../types/WaybackQuery";
@@ -24,7 +25,10 @@ const ongoingWaybackQueryAtom = atom<WaybackQuery | undefined>((get) => {
   const inputs = get(waybackQueryInputsAtom);
   if (inputs === undefined) return undefined;
   const cache = get(eventCreatedAtCacheAtom);
-  return WaybackQuery.fromInputs(inputs, (id) => cache[id]);
+  return WaybackQuery.fromInputs(inputs, (rawInput) => {
+    const parsed = parseEventInput(rawInput);
+    return parsed ? cache[parsed.hexId] : undefined;
+  });
 });
 
 export const useOngoingWaybackQuery = () => {
@@ -71,30 +75,34 @@ const myDataForEventResolveAtom = atom((get) => {
 store.sub(waybackQueryInputsAtom, () => {
   const inputs = store.get(waybackQueryInputsAtom);
   if (inputs?.type !== "event-and-around") return;
-  const eventId = inputs.eventId;
+  const parsed = parseEventInput(inputs.eventId);
+  if (!parsed) return;
+  const { hexId, relayHints } = parsed;
   const cache = store.get(eventCreatedAtCacheAtom);
-  if (cache[eventId] !== undefined) return;
-  if (pendingResolves.has(eventId)) return;
+  if (cache[hexId] !== undefined) return;
+  if (pendingResolves.has(hexId)) return;
 
   const myData = store.get(myDataForEventResolveAtom);
   if (myData === undefined) return;
-  const relays = myData.relayList ? getReadRelays(myData.relayList) : [];
+  const userRelays = myData.relayList ? getReadRelays(myData.relayList) : [];
+  // dedupe user relays + nevent relay hints
+  const fetchRelays = Array.from(new Set([...userRelays, ...relayHints]));
 
-  pendingResolves.add(eventId);
-  EventFetcher.fetchEventById(eventId, relays)
+  pendingResolves.add(hexId);
+  EventFetcher.fetchEventById(hexId, fetchRelays)
     .then((ev) => {
       if (ev !== undefined) {
         const cur = store.get(eventCreatedAtCacheAtom);
-        store.set(eventCreatedAtCacheAtom, { ...cur, [eventId]: ev.created_at });
+        store.set(eventCreatedAtCacheAtom, { ...cur, [hexId]: ev.created_at });
       } else {
-        console.warn("event-and-around: event not found:", eventId);
+        console.warn("event-and-around: event not found:", hexId, "relays:", fetchRelays);
       }
     })
     .catch((err) => {
       console.error("event-and-around: fetch failed:", err);
     })
     .finally(() => {
-      pendingResolves.delete(eventId);
+      pendingResolves.delete(hexId);
     });
 });
 

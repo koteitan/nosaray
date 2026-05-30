@@ -20,8 +20,8 @@ import {
 import { SingleDatepicker } from "chakra-dayzed-datepicker";
 import { addMinutes, differenceInMilliseconds, format, getUnixTime, parseISO, startOfMinute, subHours } from "date-fns";
 import { useAtomValue, useSetAtom } from "jotai";
-import { decode } from "nostr-tools/nip19";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { parseEventInput } from "../nostr/eventId";
 import { eventCreatedAtCacheAtom, waybackQueryInputsAtom } from "../states/WaybackQuery";
 import type { TimeUnit } from "../types/TimeUnit";
 import { WaybackQuery, WaybackQueryInputs } from "../types/WaybackQuery";
@@ -47,22 +47,7 @@ const formatQueryFromInputs = (i: WaybackQueryInputs | undefined, cache: Record<
   return WaybackQuery.format(q);
 };
 
-const toEventHexId = (input: string): string | undefined => {
-  const trimmed = input.trim();
-  if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
-    return trimmed.toLowerCase();
-  }
-  if (trimmed.startsWith("note1") || trimmed.startsWith("nevent1")) {
-    try {
-      const decoded = decode(trimmed);
-      if (decoded.type === "note") return decoded.data;
-      if (decoded.type === "nevent") return decoded.data.id;
-    } catch {
-      return undefined;
-    }
-  }
-  return undefined;
-};
+const toEventHexId = (input: string): string | undefined => parseEventInput(input)?.hexId;
 
 export const WaybackQueryForm: React.FC = () => {
   const setQueryInputs = useSetAtom(waybackQueryInputsAtom);
@@ -147,11 +132,12 @@ const useEventAndAroundForm = () => {
   const [durationUnit, setDurationUnit] = useState<TimeUnit>(initial.durationUnit);
 
   const queryInputs: WaybackQueryInputs | undefined = useMemo(() => {
-    const hexId = toEventHexId(eventInput);
-    if (!hexId || durationValue <= 0) return undefined;
+    const parsed = parseEventInput(eventInput);
+    if (!parsed || durationValue <= 0) return undefined;
+    // preserve the raw input (hex or bech32) so nevent1 relay hints survive URL round-trip
     return {
       type: "event-and-around",
-      eventId: hexId,
+      eventId: eventInput.trim(),
       durationValue,
       durationUnit,
     };

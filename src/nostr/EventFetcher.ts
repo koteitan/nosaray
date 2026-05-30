@@ -70,7 +70,9 @@ export class EventFetcher {
   }
 
   public static async fetchEventById(eventId: string, relayUrls: string[]): Promise<NostrEvent | undefined> {
-    return await fetcher.fetchLastEvent(relaysWithBootstraps(relayUrls), {
+    // single-event lookup uses only the caller-provided relays (user's read relays + nevent relay hints).
+    // bootstrap relays are intentionally excluded here.
+    return await fetcher.fetchLastEvent(relayUrls, {
       ids: [eventId],
     });
   }
