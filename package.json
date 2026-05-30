@@ -1,6 +1,6 @@
 {
   "name": "nosaray",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Weyback Machine for Nostr",
   "private": true,
   "type": "module",

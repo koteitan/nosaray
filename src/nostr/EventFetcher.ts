@@ -5,7 +5,14 @@ import { parseNostrProfile } from "./ProfileParser";
 
 const fetcher = NostrFetcher.init({ minLogLevel: "info" });
 
-const bootstrapRelays = ["wss://relay.nostr.band", "wss://directory.yabu.me", "wss://purplepag.es"];
+// bootstrap relays for discovering kind:10002 (relay list), profiles, and one-off event lookups.
+// these are NOT mixed into kind:1 timeline fetches once the user's relay list is known.
+const bootstrapRelays = [
+  "wss://directory.yabu.me",
+  "wss://purplepag.es",
+  "wss://relay.nostr.band",
+  "wss://indexer.coracle.social",
+];
 
 const relaysWithBootstraps = (relayUrls: string[]) => [...relayUrls, ...bootstrapRelays];
 
@@ -57,7 +64,7 @@ export class EventFetcher {
 
     const followList = k3 ? k3.tags.filter((t) => t.length >= 2 && t[0] === "p").map((t) => t[1] as string) : [];
 
-    const relayList = parseRelayList([k3, k10002]);
+    const relayList = pickRelayList(k3, k10002);
 
     return { followList, relayList };
   }
@@ -73,8 +80,9 @@ export class EventFetcher {
     timeRangeFilter: FetchTimeRangeFilter,
     relayUrls: string[],
   ): AsyncIterable<NostrEvent> {
+    // kind:1 search uses only the user's relay list (no bootstrap relays)
     const evIter = fetcher.allEventsIterator(
-      relaysWithBootstraps(relayUrls),
+      relayUrls,
       { authors: pubkeys, kinds: [eventKind.text] },
       timeRangeFilter,
     );
@@ -86,21 +94,23 @@ export class EventFetcher {
   }
 }
 
-const parseRelayList = (evs: (NostrEvent | undefined)[]): RelayList => {
-  const relayListEvs = evs.filter((ev): ev is NostrEvent => ev !== undefined && [3, 10002].includes(ev.kind));
-  if (relayListEvs.length === 0) {
-    return {};
+// fallback relays used when both kind:10002 and kind:3 are absent (or empty)
+const fallbackRelays = ["wss://relay.nostr.band", "wss://yabu.me", "wss://purplepag.es"];
+
+const fallbackRelayList = (): RelayList =>
+  Object.fromEntries(fallbackRelays.map((url) => [url, { read: true, write: true }]));
+
+// priority: kind:10002 > kind:3 > fallback. kind:3 is NOT consulted when kind:10002 is present.
+const pickRelayList = (k3: NostrEvent | undefined, k10002: NostrEvent | undefined): RelayList => {
+  if (k10002 !== undefined) {
+    const list = parseRelayListInKind10002(k10002);
+    if (Object.keys(list).length > 0) return list;
   }
-  const latest = relayListEvs.sort((a, b) => b.created_at - a.created_at)[0] as NostrEvent;
-  switch (latest.kind) {
-    case eventKind.contacts:
-      return parseRelayListInKind3(latest);
-    case eventKind.relayList:
-      return parseRelayListInKind10002(latest);
-    default:
-      console.error("parseRelayList: unreachable");
-      return {};
+  if (k3 !== undefined) {
+    const list = parseRelayListInKind3(k3);
+    if (Object.keys(list).length > 0) return list;
   }
+  return fallbackRelayList();
 };
 
 const parseRelayListInKind3 = (ev: NostrEvent): RelayList => {
