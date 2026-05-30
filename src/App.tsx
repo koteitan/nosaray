@@ -18,6 +18,9 @@ export const App = () => {
       // show oldest first when since < until (natural order), newest first when reversed
       return queryInputs.sinceDatetime <= queryInputs.untilDatetime ? "created-at-asc" : "created-at-desc";
     }
+    if (queryInputs?.type === "event-and-around") {
+      return "created-at-asc";
+    }
     return "created-at-desc";
   }, [queryInputs]);
 

@@ -1,4 +1,4 @@
-import { clearPosts, clearPostSelection } from "./Posts";
+import { clearPostSelection, clearPosts } from "./Posts";
 import { clearProfiles } from "./Profiles";
 import { clearWaybackQueryInputs } from "./WaybackQuery";
 

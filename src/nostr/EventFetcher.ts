@@ -1,4 +1,4 @@
-import { NostrFetcher, eventKind, type FetchTimeRangeFilter, type NostrEvent } from "nostr-fetch";
+import { type FetchTimeRangeFilter, type NostrEvent, NostrFetcher, eventKind } from "nostr-fetch";
 import type { NostrProfileWithMeta } from "../types/NostrProfile";
 import type { RelayList } from "../types/RelayList";
 import { parseNostrProfile } from "./ProfileParser";
@@ -60,6 +60,12 @@ export class EventFetcher {
     const relayList = parseRelayList([k3, k10002]);
 
     return { followList, relayList };
+  }
+
+  public static async fetchEventById(eventId: string, relayUrls: string[]): Promise<NostrEvent | undefined> {
+    return await fetcher.fetchLastEvent(relaysWithBootstraps(relayUrls), {
+      ids: [eventId],
+    });
   }
 
   public static async *fetchTextNotes(

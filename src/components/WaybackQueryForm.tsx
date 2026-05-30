@@ -19,9 +19,10 @@ import {
 } from "@chakra-ui/react";
 import { SingleDatepicker } from "chakra-dayzed-datepicker";
 import { addMinutes, differenceInMilliseconds, format, getUnixTime, parseISO, startOfMinute, subHours } from "date-fns";
-import { useSetAtom } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
+import { decode } from "nostr-tools/nip19";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { waybackQueryInputsAtom } from "../states/WaybackQuery";
+import { eventCreatedAtCacheAtom, waybackQueryInputsAtom } from "../states/WaybackQuery";
 import type { TimeUnit } from "../types/TimeUnit";
 import { WaybackQuery, WaybackQueryInputs } from "../types/WaybackQuery";
 
@@ -30,25 +31,48 @@ const getNow = () => new Date();
 const jaDayNames = "日月火水木金土".split("");
 const jaMonthNames = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((i) => `${i}月`);
 
-const formatQueryFromInputs = (i: WaybackQueryInputs | undefined): string => {
+const formatQueryFromInputs = (i: WaybackQueryInputs | undefined, cache: Record<string, number>): string => {
   if (i === undefined) {
     return "入力中...";
   }
-  const q = WaybackQuery.fromInputs(i);
+  const q = WaybackQuery.fromInputs(i, (id) => cache[id]);
   if (q === undefined) {
+    if (i.type === "event-and-around") {
+      return "イベント取得中...";
+    }
     return "入力中...";
   }
   return WaybackQuery.format(q);
 };
 
+const toEventHexId = (input: string): string | undefined => {
+  const trimmed = input.trim();
+  if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
+    return trimmed.toLowerCase();
+  }
+  if (trimmed.startsWith("note1") || trimmed.startsWith("nevent1")) {
+    try {
+      const decoded = decode(trimmed);
+      if (decoded.type === "note") return decoded.data;
+      if (decoded.type === "nevent") return decoded.data.id;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+};
+
 export const WaybackQueryForm: React.FC = () => {
   const setQueryInputs = useSetAtom(waybackQueryInputsAtom);
+  const eventCache = useAtomValue(eventCreatedAtCacheAtom);
 
+  const eventAndAroundForm = useEventAndAroundForm();
   const sinceAndDurForm = useSinceAndDurForm();
   const sinceAndUntilForm = useSinceAndUntilForm();
   const untilNowForm = useUntilNowForm();
 
   const tabs = [
+    { key: "event-around", label: "イベント±期間", form: eventAndAroundForm, queryType: "event-and-around" as const },
     { key: "since-dur", label: "始点+期間", form: sinceAndDurForm, queryType: "since-and-dur" as const },
     { key: "since-until", label: "始点+終点", form: sinceAndUntilForm, queryType: "since-and-until" as const },
     { key: "until-now", label: "現在まで", form: untilNowForm, queryType: "until-now" as const },
@@ -81,7 +105,7 @@ export const WaybackQueryForm: React.FC = () => {
           ))}
         </TabPanels>
       </Tabs>
-      <Text>{formatQueryFromInputs(queryInputs)}</Text>
+      <Text>{formatQueryFromInputs(queryInputs, eventCache)}</Text>
       <Button colorScheme="purple" onClick={handleClickWayback} isDisabled={queryInputs === undefined}>
         <HStack>
           <RepeatClockIcon />
@@ -90,6 +114,87 @@ export const WaybackQueryForm: React.FC = () => {
       </Button>
     </VStack>
   );
+};
+
+const useEventAndAroundForm = () => {
+  const initial = useMemo(() => {
+    const inputs = WaybackQueryInputs.fromURLQuery(location.search);
+    if (inputs?.type !== "event-and-around") {
+      return { eventInput: "", durationValue: 30, durationUnit: "minutes" as TimeUnit };
+    }
+    return {
+      eventInput: inputs.eventId,
+      durationValue: inputs.durationValue,
+      durationUnit: inputs.durationUnit,
+    };
+  }, []);
+
+  const [eventInput, setEventInput] = useState<string>(initial.eventInput);
+  const [durationValue, setDurationValue] = useState<number>(initial.durationValue);
+  const [durationUnit, setDurationUnit] = useState<TimeUnit>(initial.durationUnit);
+
+  const queryInputs: WaybackQueryInputs | undefined = useMemo(() => {
+    const hexId = toEventHexId(eventInput);
+    if (!hexId || durationValue <= 0) return undefined;
+    return {
+      type: "event-and-around",
+      eventId: hexId,
+      durationValue,
+      durationUnit,
+    };
+  }, [eventInput, durationValue, durationUnit]);
+
+  const isInvalidEvent = eventInput.length > 0 && toEventHexId(eventInput) === undefined;
+  const hexId = toEventHexId(eventInput);
+
+  const handleJump = () => {
+    if (!hexId) return;
+    const el = document.getElementById(`post-${hexId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    } else {
+      console.warn("jump: post not found in timeline:", hexId);
+    }
+  };
+
+  const view = (
+    <HStack alignItems="center" justifyContent="center">
+      <Input
+        placeholder="note1... / nevent1... / hex"
+        value={eventInput}
+        onChange={(e) => setEventInput(e.target.value)}
+        isInvalid={isInvalidEvent}
+        w="280px"
+      />
+      <Text minW="1.5em">±</Text>
+      <NumberInput
+        min={1}
+        max={100}
+        allowMouseWheel
+        value={durationValue}
+        onChange={(_, n) => setDurationValue(Number.isNaN(n) ? 0 : n)}
+        w="100px"
+      >
+        <NumberInputField />
+        <NumberInputStepper>
+          <NumberIncrementStepper />
+          <NumberDecrementStepper />
+        </NumberInputStepper>
+      </NumberInput>
+      <Select value={durationUnit} onChange={(e) => setDurationUnit(e.target.value as TimeUnit)} w="fit-content">
+        {Object.entries(durTimeUnitLabels).map(([unit, label]) => (
+          <option key={unit} value={unit}>
+            {label}
+          </option>
+        ))}
+      </Select>
+      <Button onClick={handleJump} isDisabled={!hexId} size="sm" variant="outline">
+        ジャンプ
+      </Button>
+    </HStack>
+  );
+
+  return { queryInputs, view };
 };
 
 const durTimeUnitLabels: Record<TimeUnit, string> = {

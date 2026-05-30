@@ -1,5 +1,6 @@
 import { CheckIcon, CopyIcon } from "@chakra-ui/icons";
 import { Box, type PlacementWithLogical, Tooltip, useClipboard } from "@chakra-ui/react";
+import { useDarkAware } from "../utils/darkmode";
 
 type TooltipProps = {
   label: string;
@@ -14,9 +15,11 @@ type CopyToClipboardButtonProps = {
 
 export const CopyToClipboardButton: React.FC<CopyToClipboardButtonProps> = ({ valueToCopy, tooltip, children }) => {
   const { onCopy, hasCopied } = useClipboard(valueToCopy, 500);
+  const checkColor = useDarkAware("green.300");
+  const copyColor = useDarkAware("gray.500");
   const body = (
     <Box role="button" aria-label="copy share URL" onClick={onCopy}>
-      {hasCopied ? <CheckIcon color="green.300" /> : children ?? <CopyIcon color="gray.500" />}
+      {hasCopied ? <CheckIcon color={checkColor} /> : (children ?? <CopyIcon color={copyColor} />)}
     </Box>
   );
 

@@ -21,7 +21,16 @@ type WBQueryInputsUntilNow = {
   type: "until-now";
 } & DurationInputs;
 
-export type WaybackQueryInputs = WBQueryInputsSinceAndDur | WBQueryInputsSinceAndUntil | WBQueryInputsUntilNow;
+type WBQueryInputsEventAndAround = {
+  type: "event-and-around";
+  eventId: string; // hex (32 bytes)
+} & DurationInputs;
+
+export type WaybackQueryInputs =
+  | WBQueryInputsSinceAndDur
+  | WBQueryInputsSinceAndUntil
+  | WBQueryInputsUntilNow
+  | WBQueryInputsEventAndAround;
 
 type WBQueryInputsTypes = WaybackQueryInputs["type"];
 
@@ -58,6 +67,9 @@ const stringifyDurationInputs = ({ durationValue: value, durationUnit: unit }: D
 };
 
 const detectWBQueryType = (urlParams: URLSearchParams): WBQueryInputsTypes | undefined => {
+  if (urlParams.has("event") && urlParams.has("around")) {
+    return "event-and-around";
+  }
   if (urlParams.has("since") && urlParams.has("until")) {
     return "since-and-until";
   }
@@ -105,6 +117,23 @@ const sinceAndUntilfromURLQuery = (params: URLSearchParams): WaybackQueryInputs 
   };
 };
 
+const eventAndAroundFromURLQuery = (params: URLSearchParams): WaybackQueryInputs | undefined => {
+  const eventStr = params.get("event");
+  const aroundStr = params.get("around");
+  if (!eventStr || !aroundStr) {
+    return undefined;
+  }
+  const dur = parseDurationInputs(aroundStr);
+  if (!dur) {
+    return undefined;
+  }
+  return {
+    type: "event-and-around",
+    eventId: eventStr,
+    ...dur,
+  };
+};
+
 const untilNowfromURLQuery = (params: URLSearchParams): WaybackQueryInputs | undefined => {
   const agoStr = params.get("ago");
   if (!agoStr) {
@@ -136,6 +165,8 @@ export const WaybackQueryInputs = {
         return sinceAndUntilfromURLQuery(params);
       case "until-now":
         return untilNowfromURLQuery(params);
+      case "event-and-around":
+        return eventAndAroundFromURLQuery(params);
     }
   },
   toURLQuery(inputs: WaybackQueryInputs): string {
@@ -153,6 +184,11 @@ export const WaybackQueryInputs = {
       }
       case "until-now": {
         params.set("ago", stringifyDurationInputs(inputs));
+        break;
+      }
+      case "event-and-around": {
+        params.set("event", inputs.eventId);
+        params.set("around", stringifyDurationInputs(inputs));
         break;
       }
     }
@@ -185,7 +221,10 @@ const durationInSecs = (dur: DurationInputs): number => dur.durationValue * secs
 const formatUnixtime = (unixtime: number) => format(fromUnixTime(unixtime), "yyyy/MM/dd HH:mm");
 
 export const WaybackQuery = {
-  fromInputs(inputs: WaybackQueryInputs): WaybackQuery | undefined {
+  fromInputs(
+    inputs: WaybackQueryInputs,
+    resolveEventCreatedAt?: (eventId: string) => number | undefined,
+  ): WaybackQuery | undefined {
     switch (inputs.type) {
       case "since-and-dur": {
         if (inputs.durationValue === 0) {
@@ -229,6 +268,19 @@ export const WaybackQuery = {
         const now = getUnixTime(endOfMinute(new Date()));
         const since = now - durationInSecs(inputs);
         return { since, until: now };
+      }
+      case "event-and-around": {
+        if (inputs.durationValue === 0) {
+          return undefined;
+        }
+        const createdAt = resolveEventCreatedAt?.(inputs.eventId);
+        if (createdAt === undefined) {
+          return undefined;
+        }
+        const halfDur = durationInSecs(inputs);
+        const since = createdAt - halfDur;
+        const until = Math.min(createdAt + halfDur, getUnixTime(new Date()));
+        return { since, until };
       }
     }
   },
