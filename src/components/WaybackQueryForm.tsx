@@ -28,6 +28,8 @@ import { WaybackQuery, WaybackQueryInputs } from "../types/WaybackQuery";
 
 const getNow = () => new Date();
 
+const TAB_LS_KEY = "nosaray-tab";
+
 const jaDayNames = "日月火水木金土".split("");
 const jaMonthNames = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((i) => `${i}月`);
 
@@ -79,9 +81,20 @@ export const WaybackQueryForm: React.FC = () => {
   ];
   const [tabIdx, setTabIdx] = useState(() => {
     const initialInputs = WaybackQueryInputs.fromURLQuery(location.search);
-    const idx = tabs.findIndex((t) => t.queryType === initialInputs?.type);
-    return idx >= 0 ? idx : 0;
+    const urlIdx = tabs.findIndex((t) => t.queryType === initialInputs?.type);
+    if (urlIdx >= 0) return urlIdx;
+    const savedKey = localStorage.getItem(TAB_LS_KEY);
+    if (savedKey) {
+      const savedIdx = tabs.findIndex((t) => t.key === savedKey);
+      if (savedIdx >= 0) return savedIdx;
+    }
+    return 0; // default: イベント±期間
   });
+  const handleTabChange = (idx: number) => {
+    setTabIdx(idx);
+    const key = tabs[idx]?.key;
+    if (key) localStorage.setItem(TAB_LS_KEY, key);
+  };
   const queryInputs = tabs[tabIdx]?.form.queryInputs;
 
   const handleClickWayback = () => {
@@ -93,7 +106,7 @@ export const WaybackQueryForm: React.FC = () => {
 
   return (
     <VStack w="100%">
-      <Tabs w="100%" colorScheme="purple" defaultIndex={tabIdx} onChange={(idx) => setTabIdx(idx)}>
+      <Tabs w="100%" colorScheme="purple" defaultIndex={tabIdx} onChange={handleTabChange}>
         <TabList>
           {tabs.map((t) => (
             <Tab key={t.key}>{t.label}</Tab>
